@@ -9,6 +9,17 @@ import cors from "cors";
 
 const app = express();
 
+const requiredEnvironmentVariables = [
+  "CLIENT_URL",
+  "CLERK_SECRET_KEY",
+];
+
+for (const variableName of requiredEnvironmentVariables) {
+  if (!process.env[variableName]) {
+    throw new Error(`${variableName} environment variable is required`);
+  }
+}
+
 app.set("etag", false);
 const allowedOrigins = (process.env.CLIENT_URL || "")
   .split(",")

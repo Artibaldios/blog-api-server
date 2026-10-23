@@ -128,4 +128,15 @@ const imagekit = new ImageKit({
   privateKey: process.env.IK_PRIVATE_KEY,
 });
 
-export const uploadAuth = (req, res) => res.send(imagekit.getAuthenticationParameters());
+const assertImageKitConfig = () => {
+  const requiredEnvironmentVariables = ["IK_URL_ENDPOINT", "IK_PUBLIC_KEY", "IK_PRIVATE_KEY"];
+  const missingVariable = requiredEnvironmentVariables.find((variableName) => !process.env[variableName]);
+  if (missingVariable) {
+    throw new HttpError(500, `${missingVariable} environment variable is required for uploads`);
+  }
+};
+
+export const uploadAuth = (req, res) => {
+  assertImageKitConfig();
+  return res.send(imagekit.getAuthenticationParameters());
+};

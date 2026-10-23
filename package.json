@@ -5,6 +5,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
+    "start": "node index.js",
     "dev": "node --env-file .env --watch index.js",
     "export:mongo": "node scripts/export-mongo-data.js",
     "import:mongo": "node --env-file=.env scripts/import-mongo-data.js",
