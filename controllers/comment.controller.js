@@ -1,65 +1,47 @@
-import Comment from "../models/comment.model.js";
-import User from "../models/user.model.js";
+import { getSupabase } from "../lib/supabase.js";
+import { getClerkUserId, isAdmin, normalizeComment, requireText, requireUuid, throwDatabaseError } from "../lib/api.js";
+
+const commentSelect = "*, user:users!comments_user_id_fkey(id, username, img)";
 
 export const getPostComments = async (req, res) => {
-  const comments = await Comment.find({ post: req.params.postId })
-    .populate("user", "username img")
-    .sort({ createdAt: -1 });
-  res.status(201).json(comments);
+  const postId = requireUuid(req.params.postId, "postId");
+  const { data, error } = await getSupabase().from("comments").select(commentSelect).eq("post_id", postId).order("created_at", { ascending: false });
+  throwDatabaseError(error);
+  return res.status(200).json(data.map(normalizeComment));
 };
 
 export const addComment = async (req, res) => {
-  const clerkUserId = req.auth.userId;
-  const postId = req.params.postId;
+  const clerkUserId = getClerkUserId(req);
+  const postId = requireUuid(req.params.postId, "postId");
+  const description = requireText(req.body?.desc, "desc");
+  const supabase = getSupabase();
+  const { data: user, error: userError } = await supabase.from("users").select("id").eq("clerk_user_id", clerkUserId).maybeSingle();
+  throwDatabaseError(userError);
+  if (!user) return res.status(401).json("Can't find the user");
 
-  if (!clerkUserId) {
-    return res.status(401).json("Not authenticated!");
-  }
-
-  const user = await User.findOne({ clerkUserId });
-  if(!user){
-    return res.status(401).json("Can't find the user");
-  }
-
-  const newComment = new Comment({
-    ...req.body,
-    user: user._id,
-    post: postId,
-  });
-
-  const savedComment = await newComment.save();
-
-  res.status(201).json(savedComment);
+  const { data, error } = await supabase.from("comments").insert({ description, user_id: user.id, post_id: postId }).select(commentSelect).single();
+  throwDatabaseError(error);
+  return res.status(201).json(normalizeComment(data));
 };
 
 export const deleteComment = async (req, res) => {
-  const clerkUserId = req.auth.userId;
-  const id = req.params.id;
+  const clerkUserId = getClerkUserId(req);
+  const commentId = requireUuid(req.params.id);
+  const supabase = getSupabase();
 
-  if (!clerkUserId) {
-    return res.status(401).json("Not authenticated!");
-  }
-
-  const role = req.auth.sessionClaims?.metadata?.role || "user";
-
-  if (role === "admin") {
-    await Comment.findByIdAndDelete(req.params.id);
+  if (isAdmin(req)) {
+    const { data, error } = await supabase.from("comments").delete().eq("id", commentId).select("id").maybeSingle();
+    throwDatabaseError(error);
+    if (!data) return res.status(404).json("Comment not found!");
     return res.status(200).json("Comment has been deleted");
   }
 
-  const user = await User.findOne({ clerkUserId });
-  console.log(user._id)
-  if(user){
-    const deletedComment = await Comment.findOneAndDelete({
-      _id: id,
-      user: user._id
-    })
+  const { data: user, error: userError } = await supabase.from("users").select("id").eq("clerk_user_id", clerkUserId).maybeSingle();
+  throwDatabaseError(userError);
+  if (!user) return res.status(403).json("Cant find the user!");
 
-    if (!deletedComment) {
-      return res.status(403).json("You can delete only your comment!");
-    }
-    res.status(200).json("Comment deleted");
-  } else {
-    return res.status(403).json("Cant find the user!");
-  }
+  const { data, error } = await supabase.from("comments").delete().eq("id", commentId).eq("user_id", user.id).select("id").maybeSingle();
+  throwDatabaseError(error);
+  if (!data) return res.status(403).json("You can delete only your comment!");
+  return res.status(200).json("Comment deleted");
 };

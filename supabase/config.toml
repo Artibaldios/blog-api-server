@@ -1,0 +1,7 @@
+project_id = "blog-api-server"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public"]
+extra_search_path = ["public"]

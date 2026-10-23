@@ -1,2 +1,4 @@
 .env
+mongo-export
+scripts
 node_modules

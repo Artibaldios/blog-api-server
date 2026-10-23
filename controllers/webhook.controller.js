@@ -1,49 +1,39 @@
-import User from "../models/user.model.js";
-import Post from "../models/post.model.js";
-import Comment from "../models/comment.model.js";
 import { Webhook } from "svix";
+import { getSupabase } from "../lib/supabase.js";
+import { throwDatabaseError } from "../lib/api.js";
+
+const clerkUserValues = (data) => ({
+  clerk_user_id: data.id,
+  username: data.username || data.email_addresses?.[0]?.email_address,
+  email: data.email_addresses?.[0]?.email_address,
+  img: data.profile_img_url || null,
+});
 
 export const clerkWebHook = async (req, res) => {
-  const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET;
-  
-  if (!WEBHOOK_SECRET) {
-    throw new Error("Webhook secret needed!");
-  }
+  const webhookSecret = process.env.CLERK_WEBHOOK_SECRET;
+  if (!webhookSecret) throw new Error("Webhook secret needed!");
 
-  const payload = req.body;
-  const headers = req.headers;
-
-  const wh = new Webhook(WEBHOOK_SECRET);
-  let evt;
+  let event;
   try {
-    evt = wh.verify(payload, headers);
-  } catch (err) {
-    res.status(400).json({
-      message: "Webhook verification failed!",
-    });
+    event = new Webhook(webhookSecret).verify(req.body, req.headers);
+  } catch {
+    return res.status(400).json({ message: "Webhook verification failed!" });
   }
 
-  if (evt.type === "user.created") {
-    const newUser = new User({
-      clerkUserId: evt.data.id,
-      username: evt.data.username || evt.data.email_addresses[0].email_address,
-      email: evt.data.email_addresses[0].email_address,
-      img: evt.data.profile_img_url,
-    });
-
-    await newUser.save();
+  const supabase = getSupabase();
+  if (event.type === "user.created" || event.type === "user.updated") {
+    const values = clerkUserValues(event.data);
+    if (!values.username || !values.email) {
+      return res.status(400).json({ message: "Clerk user requires a username and email" });
+    }
+    const { error } = await supabase.from("users").upsert(values, { onConflict: "clerk_user_id" });
+    throwDatabaseError(error);
   }
 
-  if (evt.type === "user.deleted") {
-    const deletedUser = await User.findOneAndDelete({
-      clerkUserId: evt.data.id,
-    });
-
-    await Post.deleteMany({user:deletedUser._id})
-    await Comment.deleteMany({user:deletedUser._id})
+  if (event.type === "user.deleted" && event.data.id) {
+    const { error } = await supabase.from("users").delete().eq("clerk_user_id", event.data.id);
+    throwDatabaseError(error);
   }
 
-  return res.status(200).json({
-    message: "Webhook received",
-  });
+  return res.status(200).json({ message: "Webhook received" });
 };

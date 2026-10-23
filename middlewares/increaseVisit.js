@@ -1,10 +1,9 @@
-import Post from "../models/post.model.js";
+import { getSupabase } from "../lib/supabase.js";
+import { throwDatabaseError } from "../lib/api.js";
 
 const increaseVisit = async (req, res, next) => {
-  const slug = req.params.slug;
-
-  await Post.findOneAndUpdate({ slug }, { $inc: { visit: 1 } });
-
+  const { error } = await getSupabase().rpc("increment_post_visit", { post_slug: req.params.slug });
+  throwDatabaseError(error);
   next();
 };
 

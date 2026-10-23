@@ -1,40 +1,36 @@
-import User from "../models/user.model.js";
+import { getSupabase } from "../lib/supabase.js";
+import { getClerkUserId, requireUuid, throwDatabaseError } from "../lib/api.js";
 
 export const getUserSavedPosts = async (req, res) => {
-  const clerkUserId = req.auth.userId;
+  const clerkUserId = getClerkUserId(req);
+  const supabase = getSupabase();
+  const { data: user, error: userError } = await supabase.from("users").select("id").eq("clerk_user_id", clerkUserId).maybeSingle();
+  throwDatabaseError(userError);
+  if (!user) return res.status(200).json([]);
 
-  if (!clerkUserId) {
-    return res.status(401).json("Not authenticated!");
-  }
-
-  const user = await User.findOne({ clerkUserId });
-  if(!user){
-    res.status(200).json([]);
-  }
-  res.status(200).json(user.savedPosts);
+  const { data, error } = await supabase.from("saved_posts").select("post_id").eq("user_id", user.id);
+  throwDatabaseError(error);
+  return res.status(200).json(data.map(({ post_id: postId }) => postId));
 };
 
 export const savePost = async (req, res) => {
-  const clerkUserId = req.auth.userId;
-  const postId = req.body.postId;
+  const clerkUserId = getClerkUserId(req);
+  const postId = requireUuid(req.body?.postId, "postId");
+  const supabase = getSupabase();
+  const { data: user, error: userError } = await supabase.from("users").select("id").eq("clerk_user_id", clerkUserId).maybeSingle();
+  throwDatabaseError(userError);
+  if (!user) return res.status(404).json("User not found!");
 
-  if (!clerkUserId) {
-    return res.status(401).json("Not authenticated!");
+  const { data: savedPost, error: lookupError } = await supabase.from("saved_posts").select("user_id").eq("user_id", user.id).eq("post_id", postId).maybeSingle();
+  throwDatabaseError(lookupError);
+
+  if (savedPost) {
+    const { error } = await supabase.from("saved_posts").delete().eq("user_id", user.id).eq("post_id", postId);
+    throwDatabaseError(error);
+    return res.status(200).json("Post unsaved");
   }
 
-  const user = await User.findOne({ clerkUserId });
-
-  const isSaved = user.savedPosts.some((p) => p === postId);
-
-  if (!isSaved) {
-    await User.findByIdAndUpdate(user._id, {
-      $push: { savedPosts: postId },
-    });
-  } else {
-    await User.findByIdAndUpdate(user._id, {
-      $pull: { savedPosts: postId },
-    });
-  }
-
-  res.status(200).json(isSaved ? "Post unsaved" : "Post saved");
+  const { error } = await supabase.from("saved_posts").insert({ user_id: user.id, post_id: postId });
+  throwDatabaseError(error);
+  return res.status(200).json("Post saved");
 };
